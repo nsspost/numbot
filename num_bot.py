@@ -18,8 +18,8 @@ logging.basicConfig(level=logging.INFO)
 TOKEN = '8589045432:AAE5q28wXEtewrgEUjZp2TcGO2LGqec5n3A'
 ADMIN_ID = 1292069307  # ЗАМЕНИТЕ на ваш числовой ID
 # ВНИМАНИЕ!!! НАДО ВЫБРАТЬ ДЛЯ ОТЛАДКИ ИЛИ ДЛЯ СЕРВЕРА ПУТЬ К ФАЙЛУ БАЗЫ ДАННЫХ
-#DB_FILE = 'bot_database.json' # для локальных тестов
-DB_FILE = '/data/bot_database.json' # для сервера
+DB_FILE = 'bot_database.json' # для локальных тестов
+#DB_FILE = '/data/bot_database.json' # для сервера
  
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
