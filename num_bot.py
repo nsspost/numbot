@@ -1,3 +1,7 @@
+
+# need to install "pip install pandas openpyxl aiogram aiofiles" in Windows/linux console
+
+
 import asyncio
 import json
 import os
