@@ -23,7 +23,17 @@ DB_FILE = 'bot_database.json' # для локальных тестов
  
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
-
+# Добавление команд в меню
+async def set_commands(bot: Bot):
+    commands = [
+        types.BotCommand(command="start", description="Запустить бота"),
+        types.BotCommand(command="name", description="Регистрация (Имя Фамилия)"),
+        types.BotCommand(command="get_num", description="Получить номер"),
+        types.BotCommand(command="help", description="Список всех команд"),
+        types.BotCommand(command="report", description="Отчет Excel (Админ)"),
+        types.BotCommand(command="reset_numbers", description="Сброс базы (Админ)")
+    ]
+    await bot.set_my_commands(commands)
 # --- РАБОТА С БАЗОЙ ДАННЫХ ---
 async def load_data():
     if not os.path.exists(DB_FILE):
@@ -55,7 +65,29 @@ async def cmd_start(message: types.Message):
         "👉 /name Имя Фамилия\n\n"
         "После этого вы сможете получать номера командой /get_num"
     )
-
+@dp.message(Command("help"))
+async def cmd_help(message: types.Message):
+    data = await load_data()
+    is_admin = message.from_user.id == ADMIN_ID
+    
+    help_text = (
+        "📖 **Список доступных команд:**\n\n"
+        "👤 **Для всех:**\n"
+        "/start — запустить бота и увидеть приветствие\n"
+        "/name Имя Фамилия — зарегистрироваться в базе\n"
+        "/get_num — получить свой порядковый номер\n"
+        "/help — показать это сообщение\n"
+    )
+    
+    if is_admin:
+        help_text += (
+            "\n👑 **Для администратора:**\n"
+            "/report — выгрузить историю в Excel\n"
+            "/reset_numbers — обнулить счетчик и очистить историю"
+        )
+        
+    await message.answer(help_text, parse_mode=None)
+ 
 # 2. Команда РЕГИСТРАЦИИ (доступна всем)
 @dp.message(Command("name"))
 async def set_name(message: types.Message):
@@ -157,6 +189,7 @@ async def reset_numbers(message: types.Message):
 # --- ЗАПУСК ---
 async def main():
     print("Бот запущен и готов к работе!")
+    await set_commands(bot) # Устанавливаем список команд в меню
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
