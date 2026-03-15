@@ -11,8 +11,8 @@ import pandas as pd
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.types import (FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton, 
-                           CallbackQuery, BotCommand, BotCommandScopeDefault, BotCommandScopeChat)
+from aiogram.types import FSInputFile, InlineKeyboardButton, CallbackQuery, BotCommand
+from aiogram.utils.keyboard import InlineKeyboardBuilder # Специальный строитель
 
 # Логирование
 logging.basicConfig(level=logging.INFO)
@@ -25,9 +25,7 @@ DB_FILE = 'bot_database.json'
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-bot = Bot(token=TOKEN)
-dp = Dispatcher()
-
+# --- БАЗА ДАННЫХ ---
 async def load_data():
     if not os.path.exists(DB_FILE):
         return {"next_new_num": 1, "users": {}, "history": [], "free_numbers": []}
@@ -42,6 +40,7 @@ async def save_data(data):
     async with aiofiles.open(DB_FILE, mode='w', encoding='utf-8') as f:
         await f.write(json.dumps(data, ensure_ascii=False, indent=4))
 
+# --- ЛОГИКА НОМЕРОВ ---
 async def assign_num(uid, data):
     if data.get("free_numbers"):
         data["free_numbers"].sort()
@@ -51,21 +50,24 @@ async def assign_num(uid, data):
         data["next_new_num"] = num + 1
     
     user = data["users"][uid]
-    # Принудительно делаем имя строкой для истории
-    name_str = " ".join(user["real_name"]) if isinstance(user["real_name"], list) else str(user["real_name"])
+    # Гарантируем, что имя - строка
+    raw_name = user.get("real_name", "Без имени")
+    name_str = " ".join(raw_name) if isinstance(raw_name, list) else str(raw_name)
     
     data["history"].append({
         "number": num, "user_id": uid, "real_name": name_str,
-        "tg_nick": user["tg_nick"], "date": datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+        "tg_nick": user.get("tg_nick", ""), "date": datetime.now().strftime("%d.%m.%Y %H:%M:%S")
     })
     return num
+
+# --- ОБРАБОТЧИКИ ---
 
 @dp.message(Command("name"))
 async def cmd_name(message: types.Message):
     args = message.text.split(maxsplit=1)
     if len(args) > 1:
         data = await load_data()
-        # СОХРАНЯЕМ КАК СТРОКУ, А НЕ СПИСОК
+        # СРАЗУ СОХРАНЯЕМ КАК ЧИСТУЮ СТРОКУ
         full_name = args[1] 
         data["users"][str(message.from_user.id)] = {
             "real_name": full_name, 
@@ -80,23 +82,30 @@ async def cmd_name(message: types.Message):
 async def cmd_admin_get(message: types.Message):
     if message.from_user.id != ADMIN_ID: return
     data = await load_data()
-    if not data.get("users"):
-        return await message.answer("База пуста.")
+    
+    users = data.get("users", {})
+    if not users:
+        return await message.answer("База пользователей пуста.")
 
-    rows = []
-    for uid, info in data["users"].items():
-        # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: преобразуем имя в строку перед созданием кнопки
+    # Используем Builder - это исключает ошибку типов кнопок
+    builder = InlineKeyboardBuilder()
+    
+    for uid, info in users.items():
         raw_name = info.get("real_name", "Без имени")
+        # Если в базе лежит список (старые данные), склеиваем в строку
         clean_name = " ".join(raw_name) if isinstance(raw_name, list) else str(raw_name)
         nick = info.get("tg_nick", "")
         
-        button = InlineKeyboardButton(
+        # Добавляем кнопку в билдер
+        builder.row(InlineKeyboardButton(
             text=f"👤 {clean_name} ({nick})", 
-            callback_query_data=f"adm:{uid}" # укоротили callback_data
+            callback_query_data=f"adm:{uid}")
         )
-        rows.append([button])
     
-    await message.answer("🎯 Кому выдать номер?", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    await message.answer(
+        "🎯 Выберите, кому выдать номер:", 
+        reply_markup=builder.as_markup()
+    )
 
 @dp.callback_query(F.data.startswith("adm:"))
 async def process_adm_give(callback: CallbackQuery):
@@ -105,28 +114,18 @@ async def process_adm_give(callback: CallbackQuery):
     data = await load_data()
     
     if target_uid not in data["users"]:
-        return await callback.answer("Ошибка: пользователь удален.")
+        return await callback.answer("Ошибка: пользователь не найден.")
 
     num = await assign_num(target_uid, data)
     await save_data(data)
     
-    # Снова чистим имя для сообщения
     raw_name = data["users"][target_uid]["real_name"]
     clean_name = " ".join(raw_name) if isinstance(raw_name, list) else str(raw_name)
     
     await callback.message.edit_text(f"✅ Номер {num} выдан для {clean_name}")
-    try: await bot.send_message(target_uid, f"🎁 Админ выделил вам номер: {num}")
+    try: await bot.send_message(target_uid, f"🎁 Админ выдал вам номер: {num}")
     except: pass
     await callback.answer()
-
-@dp.message(Command("get_num"))
-async def cmd_get_num(message: types.Message):
-    uid = str(message.from_user.id)
-    data = await load_data()
-    if uid not in data["users"]: return await message.answer("Сначала /name")
-    num = await assign_num(uid, data)
-    await save_data(data)
-    await message.answer(f"🎉 Ваш номер: {num}")
 
 @dp.message(Command("report"))
 async def cmd_report(message: types.Message):
@@ -137,6 +136,7 @@ async def cmd_report(message: types.Message):
     await message.answer_document(FSInputFile("report.xlsx"))
 
 async def main():
+    # Удаляем старые команды и ставим новые подсказки
     await bot.set_my_commands([
         BotCommand(command="name", description="Регистрация"),
         BotCommand(command="get_num", description="Получить номер"),
