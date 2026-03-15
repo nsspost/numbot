@@ -20,7 +20,7 @@ logging.basicConfig(level=logging.INFO)
 # --- КОНФИГУРАЦИЯ ---
 TOKEN = '8712709130:AAEkxYNQUcvEKshgU2DpsI35-TBRIKo_kj8'
 ADMIN_ID = 1305647823  # ВАШ ID (числом)
-DB_FILE = 'bot_database.json'
+DB_FILE = '/app/data/bot_database.json'
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
