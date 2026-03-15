@@ -82,31 +82,56 @@ async def cmd_name(message: types.Message):
 
 @dp.message(Command("admin_get"))
 async def cmd_admin_get(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
+    if message.from_user.id != ADMIN_ID: 
+        return
+    
     data = await load_data()
-    if not data["users"]:
+    if not data.get("users"):
         return await message.answer("База пользователей пуста. Никто еще не нажал /name")
 
-    buttons = []
+    # Создаем список кнопок правильно
+    keyboard_rows = []
     for uid, info in data["users"].items():
-        text = f"{info['real_name']} ({info['tg_nick']})"
-        buttons.append([InlineKeyboardButton(text=text, callback_query_data=f"adm_give:{uid}")])
+        user_name = info.get("real_name", "Без имени")
+        user_nick = info.get("tg_nick", "нет")
+        
+        # Создаем ОБЪЕКТ кнопки
+        button = InlineKeyboardButton(
+            text=f"👤 {user_name} ({user_nick})", 
+            callback_query_data=f"adm_give:{uid}"
+        )
+        # Добавляем кнопку как отдельную строку (список из одного элемента)
+        keyboard_rows.append([button])
     
-    markup = InlineKeyboardMarkup(inline_keyboard=buttons)
+    # Собираем клавиатуру из списка строк
+    markup = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+    
     await message.answer("🎯 Выберите, кому выдать номер:", reply_markup=markup)
 
 @dp.callback_query(F.data.startswith("adm_give:"))
 async def process_adm_give(callback: CallbackQuery):
-    if callback.from_user.id != ADMIN_ID: return
-    uid = callback.data.split(":")[1]
+    if callback.from_user.id != ADMIN_ID: 
+        return
+        
+    # Извлекаем ID пользователя из callback_data
+    target_uid = callback.data.split(":")[1]
     data = await load_data()
     
-    num = await assign_num(uid, data)
+    if target_uid not in data["users"]:
+        return await callback.answer("Пользователь не найден")
+
+    num = await assign_num(target_uid, data)
     await save_data(data)
     
-    await callback.message.edit_text(f"✅ Выдан номер {num} для {data['users'][uid]['real_name']}")
-    try: await bot.send_message(uid, f"🎁 Администратор выдал вам номер: {num}")
-    except: pass
+    user_name = data["users"][target_uid]["real_name"]
+    await callback.message.edit_text(f"✅ Выдан номер {num} для {user_name}")
+    
+    try:
+        await bot.send_message(target_uid, f"🎁 Администратор выдал вам номер: {num}")
+    except:
+        pass
+    
+    await callback.answer() # Закрываем "часики" на кнопке
 
 @dp.message(Command("get_num"))
 async def cmd_get_num(message: types.Message):
