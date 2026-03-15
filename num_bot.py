@@ -126,17 +126,33 @@ async def my_nums(message: types.Message):
 
 @dp.message(Command("admin_get"))
 async def admin_get_menu(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
-    data = await load_data()
-    if not data["users"]: return await message.answer("База пуста.")
+    if message.from_user.id != ADMIN_ID:
+        return
 
-    keyboard = []
+    data = await load_data()
+    # Проверяем, есть ли хоть кто-то в словаре users
+    if not data.get("users"):
+        await message.answer("❌ В базе еще нет зарегистрированных пользователей. Сначала кто-то должен написать /name")
+        return
+
+    # Создаем список кнопок
+    keyboard_buttons = []
     for uid, info in data["users"].items():
-        # Добавляем ник в текст кнопки для удобства
-        text = f"{info['real_name']} ({info['tg_nick']})"
-        keyboard.append([InlineKeyboardButton(text=text, callback_query_data=f"give_to_{uid}")])
+        user_name = info.get("real_name", "Без имени")
+        user_nick = info.get("tg_nick", "нет ника")
+        
+        # Текст на кнопке
+        btn_text = f"👤 {user_name} ({user_nick})"
+        
+        # Создаем кнопку (каждая кнопка в отдельном списке, чтобы они шли в столбик)
+        keyboard_buttons.append([
+            InlineKeyboardButton(text=btn_text, callback_query_data=f"give_to_{uid}")
+        ])
     
-    await message.answer("🎯 Кому выдать номер?", reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+    # Собираем клавиатуру
+    markup = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+    
+    await message.answer("🎯 Выберите пользователя, которому нужно выдать номер:", reply_markup=markup)
 
 @dp.callback_query(F.data.startswith("give_to_"))
 async def process_admin_give(callback: CallbackQuery):
