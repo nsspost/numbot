@@ -11,7 +11,7 @@ import pandas as pd
 from datetime import datetime
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-from aiogram.types import FSInputFile, InlineKeyboardButton, CallbackQuery, BotCommand, InlineKeyboardMarkup
+from aiogram.types import FSInputFile, InlineKeyboardButton, CallbackQuery, BotCommand
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 # Логирование
@@ -25,12 +25,20 @@ DB_FILE = 'bot_database.json'
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
+# --- РАБОТА С БАЗОЙ ДАННЫХ ---
 async def load_data():
     if not os.path.exists(DB_FILE):
         return {"next_new_num": 1, "users": {}, "history": [], "free_numbers": []}
     try:
         async with aiofiles.open(DB_FILE, mode='r', encoding='utf-8') as f:
-            return json.loads(await f.read())
+            content = await f.read()
+            data = json.loads(content)
+            # Гарантируем наличие всех ключей
+            data.setdefault("next_new_num", 1)
+            data.setdefault("users", {})
+            data.setdefault("history", [])
+            data.setdefault("free_numbers", [])
+            return data
     except:
         return {"next_new_num": 1, "users": {}, "history": [], "free_numbers": []}
 
@@ -38,70 +46,112 @@ async def save_data(data):
     async with aiofiles.open(DB_FILE, mode='w', encoding='utf-8') as f:
         await f.write(json.dumps(data, ensure_ascii=False, indent=4))
 
+# --- ЛОГИКА ВЫДАЧИ НОМЕРА ---
+async def assign_num_to_user(target_uid, data):
+    """Общая функция: берет свободный номер или создает новый"""
+    if data["free_numbers"]:
+        data["free_numbers"].sort()
+        assigned_num = data["free_numbers"].pop(0)
+    else:
+        assigned_num = data["next_new_num"]
+        data["next_new_num"] += 1
+
+    user_info = data["users"][target_uid]
+    # Очищаем имя от возможных списков/скобок для истории
+    raw_name = user_info["real_name"]
+    clean_name = " ".join(raw_name) if isinstance(raw_name, list) else str(raw_name)
+    clean_name = clean_name.replace("[", "").replace("]", "").replace("'", "").strip()
+
+    now = datetime.now()
+    record = {
+        "number": assigned_num,
+        "user_id": target_uid,
+        "real_name": clean_name,
+        "tg_nick": user_info.get("tg_nick", "нет"),
+        "date": now.strftime("%d.%m.%Y"),
+        "time": now.strftime("%H:%M:%S")
+    }
+    data["history"].append(record)
+    data["history"].sort(key=lambda x: x["number"])
+    return assigned_num
+
+# --- ОБРАБОТЧИКИ ---
+
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
+    await message.answer(
+        "👋 Бот для выдачи номеров.\n\n"
+        "1️⃣ /name Имя Фамилия — регистрация\n"
+        "2️⃣ /get_num — получить номер\n"
+        "3️⃣ /my_nums — посмотреть свои номера\n"
+        "🆘 /help — все команды"
+    )
+
 @dp.message(Command("name"))
 async def cmd_name(message: types.Message):
-    # Берем текст ПОСЛЕ команды /name
+    # Берем текст после команды /name
     full_name = message.text.replace("/name", "").strip()
     
     if full_name:
         data = await load_data()
         user_id = str(message.from_user.id)
-        # Сохраняем строго как строку!
         data["users"][user_id] = {
-            "real_name": str(full_name), 
+            "real_name": full_name, 
             "tg_nick": f"@{message.from_user.username}" if message.from_user.username else "нет"
         }
         await save_data(data)
-        await message.answer(f"✅ Регистрация: {full_name}")
+        await message.answer(f"✅ Регистрация успешна: {full_name}")
     else:
-        await message.answer("Используйте: /name Имя Фамилия")
+        await message.answer("⚠️ Напишите: /name Ваше Имя и Фамилия")
+
+@dp.message(Command("get_num"))
+async def cmd_get_num(message: types.Message):
+    uid = str(message.from_user.id)
+    data = await load_data()
+    
+    if uid not in data["users"]:
+        return await message.answer("❌ Сначала зарегистрируйтесь: /name Имя Фамилия")
+
+    num = await assign_num_to_user(uid, data)
+    await save_data(data)
+    await message.answer(f"🎉 Ваш номер: {num}")
+
+@dp.message(Command("my_nums"))
+async def cmd_my_nums(message: types.Message):
+    data = await load_data()
+    uid = str(message.from_user.id)
+    # Собираем все номера пользователя из истории
+    user_nums = [str(r["number"]) for r in data["history"] if r["user_id"] == uid]
+    
+    if user_nums:
+        await message.answer(f"📋 Ваши активные номера: {', '.join(user_nums)}")
+    else:
+        await message.answer("🤷‍♂️ У вас пока нет ни одного номера.")
+
+# --- АДМИН-ФУНКЦИИ ---
 
 @dp.message(Command("admin_get"))
 async def cmd_admin_get(message: types.Message):
-    if message.from_user.id != ADMIN_ID: 
-        return
-    
+    if message.from_user.id != ADMIN_ID: return
     data = await load_data()
-    users = data.get("users", {})
     
-    if not users:
-        return await message.answer("База пользователей пуста.")
+    if not data["users"]:
+        return await message.answer("База пуста. Никто не нажал /name")
 
     builder = InlineKeyboardBuilder()
-    
-    for uid, info in users.items():
-        # --- ОТЛАДКА ---
-        # Печатаем в консоль, чтобы увидеть, нет ли там лишних скобок или списков
-        print(f"DEBUG: Processing user {uid}, data: {info}")
-        
-        # Принудительно чистим имя. Если это список ['Имя'], берем первый элемент.
+    for uid, info in data["users"].items():
         raw_name = info.get("real_name", "Без имени")
-        if isinstance(raw_name, list):
-            name_text = " ".join(map(str, raw_name))
-        else:
-            name_text = str(raw_name)
-            
-        # Убираем возможные лишние символы, которые ломают Telegram
-        name_text = name_text.replace("[", "").replace("]", "").replace("'", "").strip()
+        clean_name = " ".join(raw_name) if isinstance(raw_name, list) else str(raw_name)
+        clean_name = clean_name.replace("[", "").replace("]", "").replace("'", "").strip()
         
-        # ВАЖНО: callback_data не должна быть длиннее 64 символов
-        cb_data = f"adm:{uid}"
-        
-        # Добавляем кнопку через Builder
-        builder.button(text=f"👤 {name_text}", callback_data=cb_data)
-
-    # Делаем так, чтобы кнопки шли в столбик (по 1 в ряд)
-    builder.adjust(1)
-    
-    try:
-        await message.answer(
-            "🎯 Выберите пользователя:", 
-            reply_markup=builder.as_markup()
+        builder.button(
+            text=f"👤 {clean_name} ({info.get('tg_nick', '')})", 
+            callback_data=f"adm:{uid}"
         )
-    except Exception as e:
-        print(f"CRITICAL ERROR: {e}")
-        await message.answer(f"Ошибка при создании меню: {e}")
-        
+    
+    builder.adjust(1)
+    await message.answer("🎯 Кому выдать номер?", reply_markup=builder.as_markup())
+
 @dp.callback_query(F.data.startswith("adm:"))
 async def process_adm_give(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID: return
@@ -111,31 +161,100 @@ async def process_adm_give(callback: CallbackQuery):
     if target_uid not in data["users"]:
         return await callback.answer("Ошибка: пользователь не найден.")
 
-    # Логика выдачи номера
-    if data.get("free_numbers"):
-        data["free_numbers"].sort()
-        num = data["free_numbers"].pop(0)
-    else:
-        num = data.get("next_new_num", 1)
-        data["next_new_num"] = num + 1
-    
-    user = data["users"][target_uid]
-    name_str = " ".join(user["real_name"]) if isinstance(user["real_name"], list) else str(user["real_name"])
-    
-    data["history"].append({
-        "number": num, "user_id": target_uid, "real_name": name_str,
-        "tg_nick": user.get("tg_nick", ""), "date": datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-    })
-    
+    num = await assign_num_to_user(target_uid, data)
     await save_data(data)
-    await callback.message.edit_text(f"✅ Выдан номер {num} для {name_str}")
-    try: await bot.send_message(target_uid, f"🎁 Админ выдал вам номер: {num}")
+    
+    await callback.message.edit_text(f"✅ Номер {num} выдан пользователю {data['users'][target_uid]['real_name']}")
+    try:
+        await bot.send_message(target_uid, f"🎁 Администратор выдал вам новый номер: {num}")
     except: pass
     await callback.answer()
 
+@dp.message(Command("report"))
+async def cmd_report(message: types.Message):
+    if message.from_user.id != ADMIN_ID: return
+    data = await load_data()
+    if not data["history"]:
+        return await message.answer("История выдач пока пуста.")
+    
+    df = pd.DataFrame(data["history"])
+    df.columns = ["№", "ID", "Имя", "Ник", "Дата", "Время"]
+    file_path = "report.xlsx"
+    df.to_excel(file_path, index=False)
+    
+    await message.answer_document(FSInputFile(file_path), caption="📊 Отчет по выданным номерам")
+    if os.path.exists(file_path): os.remove(file_path)
+
+@dp.message(Command("del_num"))
+async def cmd_del_num(message: types.Message):
+    if message.from_user.id != ADMIN_ID: return
+    args = message.text.split()
+    if len(args) < 2 or not args[1].isdigit():
+        return await message.answer("⚠️ Пример: /del_num 5")
+    
+    target = int(args[1])
+    data = await load_data()
+    
+    found = False
+    new_history = []
+    for rec in data["history"]:
+        if rec["number"] == target:
+            found = True
+            if target not in data["free_numbers"]:
+                data["free_numbers"].append(target)
+        else:
+            new_history.append(rec)
+            
+    if found:
+        data["history"] = new_history
+        await save_data(data)
+        await message.answer(f"🗑 Номер {target} удален и возвращен в очередь.")
+    else:
+        await message.answer(f"❌ Номер {target} не найден в списке выданных.")
+
+@dp.message(Command("help"))
+async def cmd_help(message: types.Message):
+    text = (
+        "📖 **Команды пользователя:**\n"
+        "/name Имя Фамилия — регистрация\n"
+        "/get_num — получить следующий номер\n"
+        "/my_nums — список ваших номеров\n"
+    )
+    if message.from_user.id == ADMIN_ID:
+        text += (
+            "\n👑 **Команды администратора:**\n"
+            "/admin_get — выдать номер любому из списка\n"
+            "/report — выгрузить Excel-отчет\n"
+            "/del_num [№] — удалить номер и вернуть в очередь\n"
+            "/reset_numbers — полный сброс номеров"
+        )
+    await message.answer(text, parse_mode="Markdown")
+
+@dp.message(Command("reset_numbers"))
+async def reset(message: types.Message):
+    if message.from_user.id != ADMIN_ID: return
+    data = await load_data()
+    data.update({"next_new_num": 1, "history": [], "free_numbers": []})
+    await save_data(data)
+    await message.answer("🔄 Все номера и история очищены. Список пользователей сохранен.")
+
+# --- ЗАПУСК ---
 async def main():
+    # Ставим подсказки команд в кнопку "Меню"
+    await bot.set_my_commands([
+        BotCommand(command="name", description="Регистрация (Имя Фамилия)"),
+        BotCommand(command="get_num", description="Получить номер"),
+        BotCommand(command="my_nums", description="Мои номера"),
+        BotCommand(command="help", description="Справка")
+    ])
+    print("Бот запущен!")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    
+
+except (KeyboardInterrupt, SystemExit):
+        pass
