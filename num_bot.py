@@ -15,8 +15,8 @@ from aiogram.types import FSInputFile
 logging.basicConfig(level=logging.INFO)
 
 # --- НАСТРОЙКИ ---
-TOKEN = '-----'
-ADMIN_ID = 1-----7  # ЗАМЕНИТЕ на ваш числовой ID
+TOKEN = '8712709130:AAEkxYNQUcvEKshgU2DpsI35-TBRIKo_kj8'
+ADMIN_ID = 1305647823  # ЗАМЕНИТЕ на ваш числовой ID
 # ВНИМАНИЕ!!! НАДО ВЫБРАТЬ ДЛЯ ОТЛАДКИ ИЛИ ДЛЯ СЕРВЕРА ПУТЬ К ФАЙЛУ БАЗЫ ДАННЫХ
 DB_FILE = 'bot_database.json' # для локальных тестов
 #DB_FILE = '/data/bot_database.json' # для сервера
