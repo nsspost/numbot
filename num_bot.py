@@ -213,42 +213,49 @@ async def cmd_del_num(message: types.Message):
     else:
         await message.answer(f"❌ Номер {target} не найден в списке выданных.")
 
+# --- КОМАНДА ПОМОЩИ ---
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
-    text = (
-        "📖 **Команды пользователя:**\n"
-        "/name Имя Фамилия — регистрация\n"
-        "/get_num — получить следующий номер\n"
+    is_admin = message.from_user.id == ADMIN_ID
+    
+    help_text = (
+        "📖 **Доступные команды:**\n\n"
+        "👤 **Для пользователей:**\n"
+        "/name Имя Фамилия — регистрация в системе\n"
+        "/get_num — получить свободный номер\n"
         "/my_nums — список ваших номеров\n"
     )
-    if message.from_user.id == ADMIN_ID:
-        text += (
-            "\n👑 **Команды администратора:**\n"
-            "/admin_get — выдать номер любому из списка\n"
-            "/report — выгрузить Excel-отчет\n"
+    
+    if is_admin:
+        help_text += (
+            "\n👑 **Для администратора:**\n"
+            "/admin_get — выдать номер пользователю из меню\n"
+            "/report — выгрузить отчет в Excel\n"
             "/del_num [№] — удалить номер и вернуть в очередь\n"
-            "/reset_numbers — полный сброс номеров"
+            "/reset_numbers — полный сброс истории"
         )
-    await message.answer(text, parse_mode="Markdown")
+    
+    # Отправляем без Markdown, если в именах есть спецсимволы, чтобы бот не падал
+    await message.answer(help_text)
 
-@dp.message(Command("reset_numbers"))
-async def reset(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
-    data = await load_data()
-    data.update({"next_new_num": 1, "history": [], "free_numbers": []})
-    await save_data(data)
-    await message.answer("🔄 Все номера и история очищены. Список пользователей сохранен.")
-
-# --- ЗАПУСК ---
+# --- ЗАПУСК БОТА ---
 async def main():
-    # Ставим подсказки команд в кнопку "Меню"
+    # Создаем папку для Bothost, если её нет
+    if not os.path.exists('/app/data'):
+        try:
+            os.makedirs('/app/data', exist_ok=True)
+        except:
+            pass
+
+    # Устанавливаем подсказки в меню Telegram
     await bot.set_my_commands([
-        BotCommand(command="name", description="Регистрация (Имя Фамилия)"),
-        BotCommand(command="get_num", description="Получить номер"),
-        BotCommand(command="my_nums", description="Мои номера"),
-        BotCommand(command="help", description="Справка")
+        types.BotCommand(command="name", description="Регистрация (Имя Фамилия)"),
+        types.BotCommand(command="get_num", description="Получить номер"),
+        types.BotCommand(command="my_nums", description="Мои номера"),
+        types.BotCommand(command="help", description="Справка по командам")
     ])
-    print("Бот запущен!")
+    
+    print(f"Бот запущен. База данных: {DB_FILE}")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
