@@ -58,37 +58,50 @@ async def cmd_name(message: types.Message):
 
 @dp.message(Command("admin_get"))
 async def cmd_admin_get(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
-    data = await load_data()
+    if message.from_user.id != ADMIN_ID: 
+        return
     
+    data = await load_data()
     users = data.get("users", {})
+    
     if not users:
         return await message.answer("База пользователей пуста.")
 
     builder = InlineKeyboardBuilder()
     
     for uid, info in users.items():
-        # Принудительная очистка имени от скобок и списков
+        # --- ОТЛАДКА ---
+        # Печатаем в консоль, чтобы увидеть, нет ли там лишних скобок или списков
+        print(f"DEBUG: Processing user {uid}, data: {info}")
+        
+        # Принудительно чистим имя. Если это список ['Имя'], берем первый элемент.
         raw_name = info.get("real_name", "Без имени")
         if isinstance(raw_name, list):
-            name_str = " ".join(map(str, raw_name))
+            name_text = " ".join(map(str, raw_name))
         else:
-            name_str = str(raw_name)
+            name_text = str(raw_name)
             
-        nick = str(info.get("tg_nick", ""))
+        # Убираем возможные лишние символы, которые ломают Telegram
+        name_text = name_text.replace("[", "").replace("]", "").replace("'", "").strip()
         
-        # Создаем кнопку. ВНИМАНИЕ: text должен быть строго строкой!
-        builder.row(InlineKeyboardButton(
-            text=f"👤 {name_str} ({nick})", 
-            callback_query_data=f"adm:{uid}")
-        )
-    
-    # Отправляем клавиатуру
-    await message.answer(
-        "🎯 Кому выдать номер?", 
-        reply_markup=builder.as_markup()
-    )
+        # ВАЖНО: callback_data не должна быть длиннее 64 символов
+        cb_data = f"adm:{uid}"
+        
+        # Добавляем кнопку через Builder
+        builder.button(text=f"👤 {name_text}", callback_data=cb_data)
 
+    # Делаем так, чтобы кнопки шли в столбик (по 1 в ряд)
+    builder.adjust(1)
+    
+    try:
+        await message.answer(
+            "🎯 Выберите пользователя:", 
+            reply_markup=builder.as_markup()
+        )
+    except Exception as e:
+        print(f"CRITICAL ERROR: {e}")
+        await message.answer(f"Ошибка при создании меню: {e}")
+        
 @dp.callback_query(F.data.startswith("adm:"))
 async def process_adm_give(callback: CallbackQuery):
     if callback.from_user.id != ADMIN_ID: return
