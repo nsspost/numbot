@@ -104,8 +104,10 @@ async def cmd_name(message: types.Message):
     else:
         await message.answer("⚠️ Напишите: /name Ваше Имя и Фамилия")
 
-@dp.message(Command("get_num"))
-async def cmd_get_num(message: types.Message):
+# --- КОМАНДЫ ПОЛЬЗОВАТЕЛЯ ---
+
+@dp.message(Command("get_num"))  # Добавлена эта строка!
+async def get_num_self(message: types.Message):
     uid = str(message.from_user.id)
     data = await load_data()
     
@@ -116,11 +118,10 @@ async def cmd_get_num(message: types.Message):
     await save_data(data)
     await message.answer(f"🎉 Ваш номер: {num}")
 
-@dp.message(Command("my_nums"))
+@dp.message(Command("my_nums"))  # Добавлена эта строка!
 async def cmd_my_nums(message: types.Message):
     data = await load_data()
     uid = str(message.from_user.id)
-    # Собираем все номера пользователя из истории
     user_nums = [str(r["number"]) for r in data["history"] if r["user_id"] == uid]
     
     if user_nums:
